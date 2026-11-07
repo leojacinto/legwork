@@ -1,0 +1,11 @@
+{
+  "name": "Legwork",
+  "basename": "legwork",
+  "landing": "/home",
+  "development": {
+    "token": ""
+  },
+  "build": {
+    "exclude": ["**/*.test.js", "**/test/**"]
+  }
+}

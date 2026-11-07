@@ -1,0 +1,15 @@
+{
+  "scope": "x_snc_legwork",
+  "scopeId": "f886ed88fc2e49f3a4e3857b3a0f6166",
+  "name": "Legwork",
+  "metadataDir": "src/plugin-xmls",
+  "appOutputDir": "dist-metadata/app",
+  "packageSourceCodeOnInstance": true,
+  "staticContent": {
+    "assets": {
+      "./public/**": {
+        "publicPath": "[$config.aiux.basename]/public"
+      }
+    }
+  }
+}
