@@ -99,7 +99,19 @@ RestApi({
             authorization: false,
             script: `(function process(request, response) {
   var gr = new GlideRecord('x_snc_legwork_run');
-  if (!gr.get(request.pathParams.id)) { response.setStatus(404); response.setBody({ error: 'Not found' }); return; }
+  var key = request.pathParams.id;
+  var found = false;
+  if (key === 'latest') {
+    // The signed-in user's most recent run, so the page can reopen it on load.
+    gr.addQuery('runner', gs.getUserID());
+    gr.orderByDesc('sys_created_on');
+    gr.setLimit(1);
+    gr.query();
+    found = gr.next();
+  } else {
+    found = gr.get(key);
+  }
+  if (!found) { response.setStatus(404); response.setBody({ error: 'Not found' }); return; }
   var steps = (gr.getValue('agent_log') || '').split('\\n').filter(String).map(function (l) {
     try { return JSON.parse(l); } catch (e) { return { step: 'log', status: 'done', text: l }; }
   });
@@ -126,6 +138,37 @@ RestApi({
       };
     })(),
     limits: new x_snc_legwork.LegworkOps().LIMITS,
+    scores: (function () {
+      var ops = new x_snc_legwork.LegworkOps();
+      var b = new GlideRecord('x_snc_legwork_run');
+      var hasBase = gr.getValue('baseline_run') && b.get(gr.getValue('baseline_run'));
+      var cur = ops.riskScore(parseFloat(gr.getValue('overstride')) || 0, parseFloat(gr.getValue('cadence')) || 0, parseFloat(gr.getValue('trunk_lean')) || 0);
+      var base = hasBase ? ops.riskScore(parseFloat(b.getValue('overstride')) || 0, parseFloat(b.getValue('cadence')) || 0, parseFloat(b.getValue('trunk_lean')) || 0) : null;
+      return { current: cur, baseline: base, currentLevel: ops.riskLevel(cur), baselineLevel: base === null ? '' : ops.riskLevel(base) };
+    })(),
+    caseRecord: (function () {
+      var id = gr.getValue('assessment');
+      if (!id) return null;
+      var ra = new GlideRecord('sn_hs_rm_risk_assessment');
+      if (!ra.get(id)) return null;
+      var acts = [];
+      var a = new GlideRecord('sn_ohs_im_action');
+      a.addQuery('ohs_task', id);
+      a.orderBy('number');
+      a.query();
+      while (a.next()) acts.push({ number: a.getValue('number'), text: a.getValue('short_description'), state: a.getDisplayValue('state'), done: a.getValue('state') === '3' });
+      return {
+        id: id,
+        number: ra.getValue('number'),
+        title: ra.getValue('short_description'),
+        exposure: ra.getValue('description') || '',
+        state: ra.getDisplayValue('state'),
+        closed: ra.getValue('state') === '4',
+        inherent: ra.getDisplayValue('risk_before_controls'),
+        residual: ra.getDisplayValue('risk_after_controls'),
+        actions: acts
+      };
+    })(),
     drills: (function () { try { return JSON.parse(gr.getValue('drills') || '[]'); } catch (e) { return []; } })(),
     jev: gr.getValue('jev_probability') ? parseFloat(gr.getValue('jev_probability')) : null,
     assessment: gr.getValue('assessment') || '',

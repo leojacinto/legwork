@@ -6,6 +6,7 @@ import './components/legwork-stage.js';
 import './components/legwork-gauges.js';
 import './components/legwork-agents.js';
 import './components/legwork-compare.js';
+import './components/legwork-case.js';
 
 const HISTORY_LENGTH = 150;
 const POLL_MS = 2500;
@@ -19,12 +20,32 @@ export default class HomePage extends AIUXElement {
     runStatus: {state: true},
     progress: {state: true},
     dryRun: {state: true},
-    clearStatus: {state: true}
+    clearStatus: {state: true},
+    caseOpen: {state: true}
   };
 
   static styles = css`
     :host {
       display: block;
+    }
+    .top {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr);
+      gap: 1rem;
+    }
+    @media (min-width: 1024px) {
+      .top {
+        grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+        transition: grid-template-columns var(--duration-slow, 500ms) ease;
+      }
+      .top.case-open {
+        grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+      }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .top {
+        transition: none;
+      }
     }
   `;
 
@@ -36,8 +57,25 @@ export default class HomePage extends AIUXElement {
     this.progress = null;
     this.activeRun = null;
     this.clearStatus = '';
+    this.caseOpen = false;
     // Dry run by default: the agents log what they would do and write nothing.
     this.dryRun = true;
+  }
+
+  // Reopen the signed-in user's latest run (and its case) when the page loads.
+  async firstUpdated() {
+    try {
+      const resp = await aiuxFetch('/api/x_snc_legwork/legwork/runs/latest');
+      if (!resp.ok) return;
+      const r = (await resp.json()).result;
+      const finished =
+        r.state === 'clear' || r.steps.some(s => s.step === 'close');
+      this.activeRun = r.id;
+      this.progress = {...r, finished};
+      if (!finished) this.pollProgress(r.id);
+    } catch (err) {
+      // no earlier run to show
+    }
   }
 
   // Poll the run until the close step logs or the poll limit is reached.
@@ -104,6 +142,7 @@ export default class HomePage extends AIUXElement {
         runs += again.removedRuns;
       }
       this.progress = null;
+      this.caseOpen = false;
       this.runStatus = '';
       this.clearStatus = i18n.getMessage(
         'Cleared {0} created records and {1} runs.',
@@ -161,24 +200,34 @@ export default class HomePage extends AIUXElement {
         <p class="mb-4 text-sm text-text-secondary">
           ${i18n.getMessage('Runner form assessment')}
         </p>
-        <div class="grid grid-cols-1 gap-4 lg:grid-cols-3">
-          <div class="lg:col-span-2">
-            <legwork-stage
-              @legwork-stage:metrics=${this.onMetrics}
-              @legwork-stage:run-complete=${this.onRunComplete}
-            ></legwork-stage>
-            <p class="mt-1 text-sm text-text-secondary" role="status">
-              ${this.runStatus}
-            </p>
+        <div class="top ${this.caseOpen ? 'case-open' : ''}">
+          <div class="flex flex-col gap-4">
+            <div>
+              <legwork-stage
+                @legwork-stage:metrics=${this.onMetrics}
+                @legwork-stage:run-complete=${this.onRunComplete}
+              ></legwork-stage>
+              <p class="mt-1 text-sm text-text-secondary" role="status">
+                ${this.runStatus}
+              </p>
+            </div>
           </div>
-          <legwork-gauges
-            .metrics=${this.metrics}
-            .history=${this.history}
-          ></legwork-gauges>
+          ${this.caseOpen
+            ? html`<legwork-case
+                .progress=${this.progress}
+                @legwork-case:close=${() => (this.caseOpen = false)}
+              ></legwork-case>`
+            : html`<legwork-gauges
+                .metrics=${this.metrics}
+                .history=${this.history}
+              ></legwork-gauges>`}
         </div>
         <div class="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
           <div class="lg:col-span-2">
-            <legwork-agents .progress=${this.progress}></legwork-agents>
+            <legwork-agents
+              .progress=${this.progress}
+              @legwork-agents:open-case=${() => (this.caseOpen = true)}
+            ></legwork-agents>
           </div>
           <legwork-compare .progress=${this.progress}></legwork-compare>
         </div>

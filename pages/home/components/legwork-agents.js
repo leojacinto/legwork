@@ -174,14 +174,30 @@ export default class LegworkAgents extends AIUXElement {
     this.resizeObserver?.disconnect();
   }
 
+  openCase() {
+    this.dispatchEvent(
+      new CustomEvent('legwork-agents:open-case', {bubbles: true, composed: true})
+    );
+  }
+
   render() {
     const p = this.progress;
     return html`
       <div class="aiux-card bg-base-100 shadow-sm">
         <div class="aiux-card-body gap-3 p-3">
-          <h2 class="text-sm font-semibold text-text-primary">
-            ${i18n.getMessage('Agent progress')}
-          </h2>
+          <div class="flex items-center justify-between gap-2">
+            <h2 class="text-sm font-semibold text-text-primary">
+              ${i18n.getMessage('Agent progress')}
+            </h2>
+            ${p?.caseRecord || p?.breaches?.length
+              ? html`<button
+                  class="aiux-btn aiux-btn-primary aiux-btn-sm"
+                  @click=${this.openCase}
+                >
+                  ${i18n.getMessage('Open case')}
+                </button>`
+              : nothing}
+          </div>
           <aiux-node-map
             .nodes=${this.nodes()}
             .edges=${this.edges()}
@@ -223,11 +239,6 @@ export default class LegworkAgents extends AIUXElement {
               ${p.drills.map(d => html`<li>${d}</li>`)}
             </ol>
           </div>`
-        : nothing}
-      ${p.verdict
-        ? html`<p class="text-sm font-semibold text-text-primary">
-            ${p.verdict}
-          </p>`
         : nothing}
     `;
   }

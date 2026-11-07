@@ -12,8 +12,11 @@ Runner form assessment on ServiceNow, built as a Lux (AIUX) app. A treadmill cli
    - **Form Assessor** scores the run and opens or finds a `sn_hs_rm_risk_assessment`.
    - **Drill Coach** creates `sn_ohs_im_action` corrective drills on it.
    - **Close Reviewer** compares with the earlier session, asks Jev whether form improved, and closes or keeps the assessment open.
-6. The page polls `GET /runs/{id}` and shows agent progress, the drills, a before and after chart and an assessment (Improved, No change, Declined, Baseline set).
-7. Every record the agents create is listed in `x_snc_legwork_created`. The Clear demo data button deletes exactly those.
+6. The page polls `GET /runs/{id}` and shows agent progress, the drills, a before and after chart and an assessment (Improved, No change, Declined, Baseline set). On load it reopens the signed-in user's latest run.
+7. **Open case** slides the risk assessment in beside the video: a d3 risk meter from Session 1 to Session 2 (Low, Moderate, High), the close decision, the corrective drills as a checklist and a link to the record. In dry run it is a labelled preview because no record exists. Live mode sets the assessment's inherent and residual risk, adds work notes and closes the drills when the assessment closes.
+8. Every record the agents create is listed in `x_snc_legwork_created`. The Clear demo data button deletes exactly those.
+
+The clip plays once and is scored, then keeps looping with a fade at the seam. Only the first pass is scored. The pose model loads when the page opens and the wireframe shows on a paused frame, so Start does not stall.
 
 Dry run is the default: the agents log what they would create and write nothing to the safety tables. The toggle at the bottom of the page switches to live.
 
@@ -58,7 +61,7 @@ Copy `.env.example` to `.env` and set your instance and credentials. `.env` is i
 
 ## Limits
 
-Demo defaults in `LegworkOps`, not tuned: stride reach above 1.1 torso lengths, step rate below 165 steps a minute, forward lean above 15 degrees. The two clips are side-on treadmill footage, so stride reach stays well under its limit and step rate carries the comparison.
+The limits in `LegworkOps` are set between the two demo clips so Session 1 raises an assessment and Session 2 clears it: step rate below 188 steps a minute, forward lean above 7.6 degrees, stride reach above 1.1 torso lengths. They are not clinical values. For other footage, re-measure and move them (see `LIMITS` in `src/server/LegworkOps.server.js`).
 
 ## Known gaps
 

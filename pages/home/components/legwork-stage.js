@@ -22,6 +22,10 @@ const CLIPS = [
 ];
 const MIN_VISIBILITY = 0.4;
 const EMIT_INTERVAL_MS = 100;
+const FADE_MS = 450;
+// A frame with the runner in view, used for the paused wireframe.
+const STILL_AT_S = 1;
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 // Video + skeleton overlay. Everything that touches the camera, <video>, canvas,
 // MediaPipe or requestAnimationFrame lives in start()/draw(), after hydration.
@@ -30,7 +34,8 @@ export default class LegworkStage extends AIUXElement {
   static properties = {
     running: {state: true},
     error: {state: true},
-    clipId: {state: true}
+    clipId: {state: true},
+    fading: {state: true}
   };
 
   static styles = css`
@@ -54,6 +59,20 @@ export default class LegworkStage extends AIUXElement {
     video {
       object-fit: fill;
     }
+    video,
+    canvas {
+      transition: opacity var(--duration-moderate, 450ms) ease;
+    }
+    .stage.fading video,
+    .stage.fading canvas {
+      opacity: 0;
+    }
+    @media (prefers-reduced-motion: reduce) {
+      video,
+      canvas {
+        transition: none;
+      }
+    }
   `;
 
   constructor() {
@@ -61,6 +80,8 @@ export default class LegworkStage extends AIUXElement {
     this.running = false;
     this.error = '';
     this.clipId = 'clip1';
+    this.fading = false;
+    this.scored = false;
     this.analyzer = new BiomechAnalyzer();
     this.feed = null;
     this.connections = [];
@@ -69,12 +90,51 @@ export default class LegworkStage extends AIUXElement {
     this.lastEmit = 0;
     this.metrics = null;
     this.summary = new RunSummary();
-    this.lastTime = 0;
+  }
+
+  // Load the model as soon as the page is up and warm it on a still frame, so
+  // Start plays straight away and the wireframe shows before the first run.
+  firstUpdated() {
+    if (isServer) return;
+    this.ready = this.prepare();
+  }
+
+  async prepare() {
+    try {
+      const {VideoPoseFeed, POSE_CONNECTIONS} = await import(
+        '../../../lib/pose.js'
+      );
+      this.connections = POSE_CONNECTIONS;
+      const video = this.renderRoot.querySelector('#video');
+      this.feed = new VideoPoseFeed(video);
+      await this.feed.load();
+      await this.showStill();
+      // Warm the other session's clip so switching tabs does not wait on the network.
+      for (const c of CLIPS) {
+        if (c.id !== this.clipId && c.url) fetch(c.url).catch(() => {});
+      }
+    } catch (err) {
+      this.error = err instanceof Error ? err.message : String(err);
+    }
+  }
+
+  // Wireframe on a paused frame, shown before the first run and after a stop.
+  async showStill() {
+    const video = this.renderRoot.querySelector('#video');
+    if (!this.feed?.landmarker || !video || this.running) return;
+    if (video.readyState < 2) return;
+    video.currentTime = Math.min(STILL_AT_S, (video.duration || STILL_AT_S) / 2);
+    await new Promise(resolve => {
+      video.onseeked = resolve;
+    });
+    this.latest = this.feed.detect();
+    this.draw();
   }
 
   disconnectedCallback() {
     super.disconnectedCallback();
-    this.stop();
+    cancelAnimationFrame(this.raf);
+    this.feed?.close();
   }
 
   render() {
@@ -93,12 +153,13 @@ export default class LegworkStage extends AIUXElement {
             </button>`
           )}
         </div>
-        <div class="stage">
+        <div class="stage ${this.fading ? 'fading' : ''}">
           <video
             id="video"
             muted
             playsinline
             preload="auto"
+            @loadeddata=${() => this.showStill()}
             src=${this.clip.url || nothing}
             aria-label=${i18n.getMessage('Runner on a curved treadmill')}
           ></video>
@@ -145,6 +206,7 @@ export default class LegworkStage extends AIUXElement {
     if (id === this.clipId) return;
     this.stop();
     this.latest = null;
+    this.draw();
     this.clipId = id;
   }
 
@@ -158,29 +220,19 @@ export default class LegworkStage extends AIUXElement {
     this.error = '';
     const video = this.renderRoot.querySelector('#video');
     try {
-      const {VideoPoseFeed, POSE_CONNECTIONS} = await import(
-        '../../../lib/pose.js'
-      );
-      this.connections = POSE_CONNECTIONS;
-      this.feed = new VideoPoseFeed(video);
+      await this.ready;
+      if (!this.feed) throw new Error(i18n.getMessage('Pose model did not load'));
       this.feed.onFrame = (lm, t) => {
         this.latest = lm;
         this.metrics = this.analyzer.update(lm, t);
-        this.summary.add(this.metrics);
+        // Only the first pass is scored. Later loops are just for the eye.
+        if (!this.scored) this.summary.add(this.metrics, t);
       };
+      this.scored = false;
       this.summary.reset();
       video.loop = false;
       video.currentTime = 0;
-      this.lastTime = 0;
-      video.onended = () => this.finish();
-      // Fallback if the clip wraps to the start instead of firing ended.
-      video.ontimeupdate = () => {
-        if (this.running && video.currentTime < this.lastTime - 1) {
-          this.finish();
-          return;
-        }
-        this.lastTime = video.currentTime;
-      };
+      video.onended = () => this.onEnded();
       await this.feed.start();
       this.running = true;
       this.raf = requestAnimationFrame(this.tick);
@@ -190,24 +242,34 @@ export default class LegworkStage extends AIUXElement {
     }
   }
 
-  // End of the clip: reduce the run to one summary and hand it to the page.
-  finish() {
-    const result = this.summary.summarise();
-    this.stop();
-    this.dispatchEvent(
-      new CustomEvent('legwork-stage:run-complete', {
-        detail: {summary: result, clip: this.clip.name},
-        bubbles: true,
-        composed: true
-      })
-    );
+  // End of the clip. The first time: hand the scored run to the page. Every
+  // time: fade out, restart, fade in, so the loop never jumps.
+  async onEnded() {
+    if (!this.scored) {
+      this.scored = true;
+      this.dispatchEvent(
+        new CustomEvent('legwork-stage:run-complete', {
+          detail: {summary: this.summary.summarise(), clip: this.clip.name},
+          bubbles: true,
+          composed: true
+        })
+      );
+    }
+    const video = this.renderRoot.querySelector('#video');
+    this.fading = true;
+    await sleep(FADE_MS);
+    if (!this.running) return;
+    video.currentTime = 0;
+    await video.play();
+    this.fading = false;
   }
 
+  // Stops playback but leaves the last wireframe on screen.
   stop() {
     cancelAnimationFrame(this.raf);
     this.feed?.stop();
-    this.feed = null;
     this.running = false;
+    this.fading = false;
   }
 
   tick = now => {

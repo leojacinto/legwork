@@ -24,7 +24,8 @@ const GAUGES = [
 export default class LegworkGauges extends AIUXElement {
   static properties = {
     metrics: {attribute: false},
-    history: {attribute: false}
+    history: {attribute: false},
+    compact: {type: Boolean}
   };
 
   static styles = css`
@@ -37,11 +38,12 @@ export default class LegworkGauges extends AIUXElement {
     super();
     this.metrics = null;
     this.history = [];
+    this.compact = false;
   }
 
   render() {
     return html`
-      <ul class="grid grid-cols-2 gap-3">
+      <ul class="grid gap-3 ${this.compact ? 'grid-cols-4' : 'grid-cols-2'}">
         ${GAUGES.map(g => html`<li>${this.renderGauge(g)}</li>`)}
       </ul>
     `;
@@ -77,10 +79,10 @@ export default class LegworkGauges extends AIUXElement {
 
     return html`
       <div class="aiux-card bg-base-100 shadow-sm">
-        <div class="aiux-card-body items-center gap-1 p-3">
+        <div class="aiux-card-body items-center gap-1 ${this.compact ? 'p-2' : 'p-3'}">
           <svg
             viewBox="0 0 ${SIZE} ${SIZE}"
-            class="w-full max-w-[120px]"
+            class="w-full ${this.compact ? 'max-w-[64px]' : 'max-w-[120px]'}"
             role="img"
             aria-label=${`${label}: ${text}`}
           >
@@ -106,16 +108,18 @@ export default class LegworkGauges extends AIUXElement {
               </text>
             </g>
           </svg>
-          <p class="text-sm font-medium text-text-primary">${label}</p>
-          <svg
-            viewBox="0 0 ${SPARK_W} ${SPARK_H}"
-            class="w-full"
-            aria-hidden="true"
-          >
-            ${spark
-              ? svg`<path d=${spark} fill="none" stroke-width="1.5" stroke="var(--color-primary, #0a7a5a)" />`
-              : nothing}
-          </svg>
+          <p class="${this.compact ? 'text-xs' : 'text-sm'} text-center font-medium text-text-primary">${label}</p>
+          ${this.compact
+            ? nothing
+            : html`<svg
+                viewBox="0 0 ${SPARK_W} ${SPARK_H}"
+                class="w-full"
+                aria-hidden="true"
+              >
+                ${spark
+                  ? svg`<path d=${spark} fill="none" stroke-width="1.5" stroke="var(--color-primary, #0a7a5a)" />`
+                  : nothing}
+              </svg>`}
         </div>
       </div>
     `;

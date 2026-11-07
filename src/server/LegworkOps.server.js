@@ -4,9 +4,10 @@ var LegworkOps = Class.create();
 LegworkOps.prototype = {
   initialize: function () {},
 
-  // Demo defaults, not tuned on recorded footage. Overstride is ankle separation
-  // divided by torso length; trunk lean is degrees from vertical.
-  LIMITS: { overstride: 1.1, cadence: 165, trunkLean: 15 },
+  // Demo limits set between the two demo clips (Session 1 reads about 177 steps/min and 8.4
+  // degrees, Session 2 about 198 and 6.9). Overstride is ankle separation divided by torso
+  // length; trunk lean is degrees from vertical.
+  LIMITS: { overstride: 1.1, cadence: 188, trunkLean: 7.6 },
 
   EXPOSURE: {
     overstride: 'Overstride raises braking force at foot strike and loads the shin and knee.',
@@ -33,6 +34,33 @@ LegworkOps.prototype = {
 
   _names: function (keys) {
     return keys.map(function (k) { return this.NAMES[k] || k; }, this);
+  },
+
+  // 0 to 100 form risk from how far each measure sits past its limit.
+  riskScore: function (overstride, cadence, trunkLean) {
+    var excess = 0;
+    if (cadence > 0 && cadence < this.LIMITS.cadence) excess += (this.LIMITS.cadence - cadence) / this.LIMITS.cadence;
+    if (trunkLean > this.LIMITS.trunkLean) excess += (trunkLean - this.LIMITS.trunkLean) / this.LIMITS.trunkLean;
+    if (overstride > this.LIMITS.overstride) excess += (overstride - this.LIMITS.overstride) / this.LIMITS.overstride;
+    return Math.min(100, Math.round(excess * 250));
+  },
+
+  riskLevel: function (score) {
+    return score < 20 ? 'Low' : score < 50 ? 'Moderate' : 'High';
+  },
+
+  _runScore: function (run) {
+    return this.riskScore(parseFloat(run.getValue('overstride')) || 0, parseFloat(run.getValue('cadence')) || 0, parseFloat(run.getValue('trunk_lean')) || 0);
+  },
+
+  // The tolerance record (Low, Moderate, High) that belongs to the assessment's risk matrix.
+  _tolerance: function (matrixId, level) {
+    var t = new GlideRecord('sn_hs_rm_risk_tolerance');
+    t.addQuery('risk_matrix', matrixId);
+    t.addQuery('title', level);
+    t.setLimit(1);
+    t.query();
+    return t.next() ? t.getUniqueValue() : '';
   },
 
   _run: function (runId) {
@@ -105,6 +133,13 @@ LegworkOps.prototype = {
       run.setValue('baseline_run', earlier.getUniqueValue());
       run.setValue('assessment', earlier.getValue('assessment'));
       run.update();
+      if (!dry && earlier.getValue('assessment')) {
+        var ra0 = new GlideRecord('sn_hs_rm_risk_assessment');
+        if (ra0.get(earlier.getValue('assessment'))) {
+          ra0.setValue('work_notes', 'Re-score. Step rate ' + Math.round(earlier.getValue('cadence')) + ' to ' + Math.round(run.getValue('cadence')) + ' steps/min, forward lean ' + parseFloat(earlier.getValue('trunk_lean')).toFixed(1) + ' to ' + parseFloat(run.getValue('trunk_lean')).toFixed(1) + ' degrees.');
+          ra0.update();
+        }
+      }
       this._log(run, 'assess', 'done', 'Re-score of an open assessment. Still an issue: ' + (this._names(breaches).join(', ') || 'none'));
       return { result: 'rescore', breaches: breaches, assessmentId: earlier.getValue('assessment') };
     }
@@ -128,6 +163,8 @@ LegworkOps.prototype = {
     ra.setValue('risk_type', 'job');
     ra.setValue('risk_matrix', matrix.getUniqueValue());
     ra.setValue('state', '3');
+    var inherent = this._tolerance(matrix.getUniqueValue(), this.riskLevel(this._runScore(run)));
+    if (inherent) ra.setValue('risk_before_controls', inherent);
     var id = ra.insert();
     if (!id) throw 'Could not create the risk assessment.';
     this._register(run, 'sn_hs_rm_risk_assessment', id, title);
@@ -203,7 +240,20 @@ LegworkOps.prototype = {
         if (ra.get(earlier.getValue('assessment'))) {
           ra.setValue('state', '4');
           ra.setValue('completed_on', new GlideDateTime().getValue());
+          var residual = this._tolerance(ra.getValue('risk_matrix'), this.riskLevel(this._runScore(run)));
+          if (residual) ra.setValue('risk_after_controls', residual);
+          ra.setValue('work_notes', 'Closed. Form improved on re-score (' + run.getValue('verdict') + ').');
           ra.update();
+        }
+        // The drills are done once form has improved enough to close.
+        var acts = new GlideRecord('sn_ohs_im_action');
+        acts.addQuery('ohs_task', earlier.getValue('assessment'));
+        acts.query();
+        while (acts.next()) {
+          try {
+            acts.setValue('state', '3');
+            acts.update();
+          } catch (e) {}
         }
         earlier.setValue('state', 'closed');
         earlier.update();

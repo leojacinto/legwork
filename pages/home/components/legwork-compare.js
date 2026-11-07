@@ -130,7 +130,7 @@ export default class LegworkCompare extends AIUXElement {
       <svg viewBox="0 0 ${W} ${h}" class="w-full" role="img"
         aria-label=${i18n.getMessage('Session 1 compared with the latest session for each measure')}>
         ${MEASURES.map((m, i) => {
-          const x = scaleLinear().domain([0, m.max]).range([0, W - LEFT - 70]).clamp(true);
+          const x = scaleLinear().domain([0, m.max]).range([0, W - LEFT - 56]).clamp(true);
           const y = i * ROW + 8;
           const limit = p.limits[m.limitKey];
           const ok = this.within(m, now[m.key], p.limits);
@@ -142,19 +142,18 @@ export default class LegworkCompare extends AIUXElement {
             <line x1=${LEFT + x(limit)} x2=${LEFT + x(limit)} y1="-2" y2="36"
               stroke="var(--color-text-secondary, #4d4c4a)" stroke-dasharray="3 2" />
             <text x=${LEFT + x(base[m.key]) + 5} y="12" font-size="10" fill="var(--color-text-secondary, #4d4c4a)">${base[m.key].toFixed(1)}</text>
-            <text x=${LEFT + x(now[m.key]) + 5} y="30" font-size="10" fill="var(--color-text-primary, #000)">${now[m.key].toFixed(1)} ${m.unit}</text>
+            <text x=${LEFT + x(now[m.key]) + 5} y="30" font-size="10" fill="var(--color-text-primary, #000)">${now[m.key].toFixed(1)}</text>
           </g>`;
         })}
         <g transform="translate(${LEFT} ${h - 6})" font-size="9" fill="var(--color-text-secondary, #4d4c4a)">
           <rect width="8" height="8" y="-8" fill="var(--color-base-300, #c9ccd1)" />
-          <text x="12" y="0">${i18n.getMessage('Session 1 (baseline)')}</text>
-          <rect x="90" width="8" height="8" y="-8" fill="var(--color-success, #0a7a5a)" />
-          <text x="102" y="0">${i18n.getMessage('Latest session')}</text>
-          <line x1="170" x2="182" y1="-4" y2="-4" stroke="var(--color-text-secondary, #4d4c4a)" stroke-dasharray="3 2" />
-          <text x="186" y="0">${i18n.getMessage('Limit')}</text>
+          <text x="12" y="0">${i18n.getMessage('Session 1')}</text>
+          <rect x="64" width="8" height="8" y="-8" fill="var(--color-success, #0a7a5a)" />
+          <text x="76" y="0">${i18n.getMessage('Latest')}</text>
+          <line x1="122" x2="134" y1="-4" y2="-4" stroke="var(--color-text-secondary, #4d4c4a)" stroke-dasharray="3 2" />
+          <text x="138" y="0">${i18n.getMessage('Limit')}</text>
         </g>
       </svg>
-      ${p.verdict ? html`<p class="text-sm font-semibold text-text-primary">${p.verdict}</p>` : nothing}
     `;
   }
 }
